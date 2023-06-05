@@ -1,0 +1,73 @@
+version: "3.9"
+
+services:
+
+  # Redis
+  redis:
+    image: redis:alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+
+  db:
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_PASSWORD=root
+      - POSTGRES_USER=admin
+      - POSTGRES_DB=db01
+      - POSTGRES_INITDB_ARGS="-A md5"
+    #volumes:
+    #  - pgdata:/var/lib/postgresql/data/
+    image: postgres:15
+
+  app:
+    restart: always
+    build:
+      dockerfile: Dockerfile
+      context: .
+    image: car_search:latest
+    container_name: car_search_service
+    #command:  python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/usr/src/app/
+    ports:
+     - "8000:8000"
+    environment:
+      - DEBUG=1
+      - DJANGO_ALLOWED_HOSTS=localhost 127.0.0.1
+      - CELERY_BROKER=redis://redis:6379/0
+      - CELERY_BACKEND=redis://redis:6379/0
+    depends_on:
+      - db
+  # Celery
+  celery-worker:
+    restart: always
+    build:
+      context: .
+    entrypoint: celery
+    command: celery -A car_search_service worker -l info -P eventlet
+    volumes:
+      - /usr/src/app/
+    container_name: celery_worker
+    depends_on:
+      - redis
+      - app
+
+
+  celery-beat:
+    restart: always
+    build:
+      context: .
+    entrypoint: celery
+    command: celery -A car_search_service beat -l info -S django
+    container_name: celery_beat
+    depends_on:
+      - redis
+      - app
+
+
+volumes:
+  db:
+    driver: local
